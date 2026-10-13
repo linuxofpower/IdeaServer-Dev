@@ -29,6 +29,11 @@ jobs:
             count=$((count + 1))
             if git -C "$SOURCE" ls-tree -r --name-only "$rev" | grep -Ei '(^|/)(\.env$|\.env\.(local|production|development|staging)$|id_rsa|id_ed25519|[^/]+\.(pem|p12|pfx|key)|certificates?\.backup)(/|$)' >/dev/null; then
               echo "::error::Historical credential-like file name detected; migration NOT staged"
+              git -C "$SOURCE" log --all --pretty=format: --name-only |
+                grep -Ei '(^|/)(\\.env$|\\.env\\.(local|production|development|staging)$|id_rsa|id_ed25519|[^/]+\\.(pem|p12|pfx|key)|certificates?\\.backup)(/|$)' |
+                sort -u | head -n 12 | while IFS= read -r p; do
+                  printf '::notice::FLAGGED_FILENAME_ONLY: %s\\n' "$p"
+                done || true
               exit 1
             fi
             if git -C "$SOURCE" grep -I -q -E -e '-----BEGIN [A-Z ]*PRIVATE KEY-----|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}' "$rev" -- . 2>/dev/null; then
