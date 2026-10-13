@@ -1,0 +1,72 @@
+name: Audit and stage legacy Git history (no default-branch changes)
+on:
+  push:
+    branches:
+      - migration/verify-source-history-20261013
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  audit-and-stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Clone complete source history and verify Git objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --mirror https://github.com/yaMorozYaroslav/IdeaServDev-relocate-.git "$RUNNER_TEMP/source.git"
+          git -C "$RUNNER_TEMP/source.git" fsck --full --no-reflogs
+          echo "Source refs:"
+          git -C "$RUNNER_TEMP/source.git" for-each-ref --format='%(refname)'
+      - name: Block private credentials or historical sensitive paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="$RUNNER_TEMP/source.git"
+          count=0
+          while IFS= read -r rev; do
+            count=$((count + 1))
+            if git -C "$SOURCE" ls-tree -r --name-only "$rev" | grep -Ei '(^|/)(\.env$|\.env\.(local|production|development|staging)$|id_rsa|id_ed25519|[^/]+\.(pem|p12|pfx|key)|certificates?\.backup)(/|$)' >/dev/null; then
+              echo "::error::Historical credential-like file name detected; migration NOT staged"
+              exit 1
+            fi
+            if git -C "$SOURCE" grep -I -q -E '-----BEGIN [A-Z ]*PRIVATE KEY-----|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}' "$rev" -- . 2>/dev/null; then
+              echo "::error::Historical credential signature detected; migration NOT staged"
+              exit 1
+            fi
+          done < <(git -C "$SOURCE" rev-list --all)
+          echo "Audited $count historical commits; no high-confidence credential signatures or prohibited paths found."
+      - name: Import old branches and tags into isolated migration namespace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/source.git"
+          DEST="https://github.com/${GITHUB_REPOSITORY}.git"
+          AUTH="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          count=0
+          while IFS= read -r old; do
+            suffix="${old#refs/heads/}"
+            target="refs/heads/migration/legacy-source/${suffix}"
+            git -C "$SRC" -c http.https://github.com/.extraheader="AUTHORIZATION: basic $AUTH" push "$DEST" "$old:$target"
+            count=$((count + 1))
+          done < <(git -C "$SRC" for-each-ref --format='%(refname)' refs/heads)
+          while IFS= read -r old; do
+            suffix="${old#refs/tags/}"
+            target="refs/tags/legacy-source/${suffix}"
+            git -C "$SRC" -c http.https://github.com/.extraheader="AUTHORIZATION: basic $AUTH" push "$DEST" "$old:$target"
+          done < <(git -C "$SRC" for-each-ref --format='%(refname)' refs/tags)
+          test "$count" -gt 0
+          echo "Staged $count source branch histories into migration/legacy-source/*; target main unchanged."
+      - name: Verify import SHA and history reachability
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/source.git"
+          SRC_SHA="$(git -C "$SRC" rev-parse refs/heads/master)"
+          LIVE_SHA="$(git ls-remote https://github.com/${GITHUB_REPOSITORY}.git refs/heads/migration/legacy-source/master | cut -f1)"
+          test -n "$LIVE_SHA" && test "$LIVE_SHA" = "$SRC_SHA"
+          echo "Verified migration branch SHA: $LIVE_SHA"
+          echo "The original repository and the target default branch are unchanged."
