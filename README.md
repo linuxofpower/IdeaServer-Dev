@@ -2,7 +2,7 @@
 
 **DEV:** [linuxofpower/IdeaServer-Dev](https://github.com/linuxofpower/IdeaServer-Dev), branch `main`.
 
-**Source / current production-side repository:** [yaMorozYaroslav/IdeaServDev](https://github.com/yaMorozYaroslav/IdeaServDev), branch `master`. This older repository name remains unchanged; any later production rename needs a separate approved action.
+**Source / current production-side repository:** [yaMorozYaroslav/IdeaServDev-relocate-](https://github.com/yaMorozYaroslav/IdeaServDev-relocate-), branch `master`. This older repository name remains unchanged; any later production rename needs a separate approved action.
 
 This is the **same application** in two stages. Implement and verify changes in DEV; the production owner (`yaMorozYaroslav`) alone accepts/rejects pull requests and merges to production. No direct production pushes or automated production deployment from DEV. These repositories have independent Git histories.
 
